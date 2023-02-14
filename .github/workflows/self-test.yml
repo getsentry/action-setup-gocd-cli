@@ -1,0 +1,16 @@
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  self-test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - uses: ./
+    - run: |
+        set -euxo pipefail
+        command -v gocd-cli
+        gocd-cli --version
+        ls ~/.gocd/plugins/yaml*.jar

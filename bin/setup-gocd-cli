@@ -1,0 +1,64 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import hashlib
+import io
+import os.path
+import secrets
+import stat
+import subprocess
+import urllib.request
+
+URL = 'https://sentry-dev-infra-assets.storage.googleapis.com/gocd-085ab00-linux-amd64'  # noqa: E501
+SHA256 = '11d517c0c0058d1204294d01bfac987c0eaf9e37ba533ad54107b0949403321e'
+TARGET = os.path.expanduser('~/.gocd')
+
+
+def _command_vars() -> int:
+    cache_key = f'gocd-cli-{SHA256}'
+
+    with open(os.environ['GITHUB_OUTPUT'], 'a+') as f:
+        print(f'cache-key={cache_key}', file=f)
+        print(f'gocd-cli-dir={TARGET}', file=f)
+
+    print(f'adding {TARGET} to path')
+    with open(os.environ['GITHUB_PATH'], 'a+') as f:
+        f.write(f'{TARGET}\n')
+
+    return 0
+
+
+def _command_install() -> int:
+    print('downloading...')
+    req = urllib.request.urlopen(URL, timeout=30)
+    bio = io.BytesIO(req.read())
+    checksum = hashlib.sha256(bio.getvalue()).hexdigest()
+    if not secrets.compare_digest(checksum, SHA256):
+        print(f'gocd-cli checksum mismatch {checksum} {SHA256}')
+        return 1
+
+    os.makedirs(TARGET, exist_ok=True)
+    target = os.path.join(TARGET, 'gocd-cli')
+    with open(target, 'wb') as f:
+        f.write(bio.getvalue())
+    mode = os.stat(target).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH
+    os.chmod(target, mode)
+
+    print('downloading yaml plugin...')
+    return subprocess.call((target, 'configrepo', '--yaml', 'fetch'))
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument('command', choices=('vars', 'install'))
+    args = parser.parse_args()
+
+    return {
+        'vars': _command_vars,
+        'install': _command_install,
+    }[args.command]()
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())
