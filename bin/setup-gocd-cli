@@ -12,11 +12,13 @@ import urllib.request
 
 URL = 'https://sentry-dev-infra-assets.storage.googleapis.com/gocd-085ab00-linux-amd64'  # noqa: E501
 SHA256 = '11d517c0c0058d1204294d01bfac987c0eaf9e37ba533ad54107b0949403321e'
+YAML_URL = 'https://github.com/tomzo/gocd-yaml-config-plugin/releases/download/0.14.1/yaml-config-plugin-0.14.1.jar'  # noqa: E501
+YAML_SHA256 = '3d3a896a5b031f05467d095e42af4a665221fa7c09106acfe3fdb532499babbb'  # noqa: E501
 TARGET = os.path.expanduser('~/.gocd')
 
 
 def _command_vars() -> int:
-    cache_key = f'gocd-cli-{SHA256}'
+    cache_key = f'gocd-cli-{SHA256}-{YAML_SHA256}'
 
     with open(os.environ['GITHUB_OUTPUT'], 'a+') as f:
         print(f'cache-key={cache_key}', file=f)
@@ -38,15 +40,27 @@ def _command_install() -> int:
         print(f'gocd-cli checksum mismatch {checksum} {SHA256}')
         return 1
 
-    os.makedirs(TARGET, exist_ok=True)
     target = os.path.join(TARGET, 'gocd-cli')
+    os.makedirs(os.path.dirname(target), exist_ok=True)
     with open(target, 'wb') as f:
         f.write(bio.getvalue())
     mode = os.stat(target).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH
     os.chmod(target, mode)
 
     print('downloading yaml plugin...')
-    return subprocess.call((target, 'configrepo', '--yaml', 'fetch'))
+    req = urllib.request.urlopen(YAML_URL, timeout=30)
+    bio = io.BytesIO(req.read())
+    checksum = hashlib.sha256(bio.getvalue()).hexdigest()
+    if not secrets.compare_digest(checksum, YAML_SHA256):
+        print(f'gocd yaml checksum mismatch: {checksum} {YAML_SHA256}')
+        return 1
+
+    target = os.path.join(TARGET, 'plugins', os.path.basename(YAML_URL))
+    os.makedirs(os.path.dirname(target), exist_ok=True)
+    with open(target, 'wb') as f:
+        f.write(bio.getvalue())
+
+    return subprocess.call(('gocd-cli', '--version'))
 
 
 def main() -> int:
